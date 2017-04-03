@@ -53,47 +53,53 @@ skip_cookie(<< $;, Rest/binary >>, Acc) ->
 skip_cookie(<< _, Rest/binary >>, Acc) ->
 	skip_cookie(Rest, Acc).
 
-parse_cookie_name(<<>>, _, <<>>) ->
-	{error, badarg};
+
+parse_cookie_name(<<>>, Acc, error) ->
+	Acc;
+
 parse_cookie_name(<<>>, Acc, Name) ->
 	lists:reverse([{Name, <<>>}|Acc]);
-parse_cookie_name(<< $=, _/binary >>, _, <<>>) ->
-	{error, badarg};
+
+parse_cookie_name(<< $=, Rest/binary >>, Acc, <<>>) ->
+	parse_cookie_value(Rest, Acc, error, <<>>);
+
 parse_cookie_name(<< $=, Rest/binary >>, Acc, Name) ->
 	parse_cookie_value(Rest, Acc, Name, <<>>);
-parse_cookie_name(<< $,, _/binary >>, _, _) ->
-	{error, badarg};
+
+parse_cookie_name(<< Bad, Rest/binary >>, Acc, _) when Bad == $\r; Bad == $\n; Bad == $\013; Bad == $\014 ->
+	parse_cookie_name(Rest, Acc, error);
+
+parse_cookie_name(<< $;, Rest/binary >>, Acc, error) ->
+	parse_cookie(Rest, Acc);
+
 parse_cookie_name(<< $;, Rest/binary >>, Acc, Name) ->
 	parse_cookie(Rest, [{Name, <<>>}|Acc]);
-parse_cookie_name(<< $\s, _/binary >>, _, _) ->
-	{error, badarg};
-parse_cookie_name(<< $\t, _/binary >>, _, _) ->
-	{error, badarg};
-parse_cookie_name(<< $\r, _/binary >>, _, _) ->
-	{error, badarg};
-parse_cookie_name(<< $\n, _/binary >>, _, _) ->
-	{error, badarg};
-parse_cookie_name(<< $\013, _/binary >>, _, _) ->
-	{error, badarg};
-parse_cookie_name(<< $\014, _/binary >>, _, _) ->
-	{error, badarg};
-parse_cookie_name(<< C, Rest/binary >>, Acc, Name) ->
-	parse_cookie_name(Rest, Acc, << Name/binary, C >>).
+
+parse_cookie_name(<< _C, Rest/binary >>, Acc, error) ->
+	parse_cookie_name(Rest, Acc, error);
+
+parse_cookie_name(<<C, Rest/binary>>, Acc, Name) ->
+	parse_cookie_name(Rest, Acc, <<Name/binary, C>>).
+
+parse_cookie_value(<<>>, Acc, Name, Value) when Name == error; Value == error ->
+	lists:reverse(Acc);
 
 parse_cookie_value(<<>>, Acc, Name, Value) ->
-	lists:reverse([{Name, parse_cookie_trim(Value)}|Acc]);
-parse_cookie_value(<< $;, Rest/binary >>, Acc, Name, Value) ->
-	parse_cookie(Rest, [{Name, parse_cookie_trim(Value)}|Acc]);
-parse_cookie_value(<< $\t, _/binary >>, _, _, _) ->
-	{error, badarg};
-parse_cookie_value(<< $\r, _/binary >>, _, _, _) ->
-	{error, badarg};
-parse_cookie_value(<< $\n, _/binary >>, _, _, _) ->
-	{error, badarg};
-parse_cookie_value(<< $\013, _/binary >>, _, _, _) ->
-	{error, badarg};
-parse_cookie_value(<< $\014, _/binary >>, _, _, _) ->
-	{error, badarg};
+	lists:reverse([{Name, parse_cookie_trim(Value)} | Acc]);
+
+parse_cookie_value(<<$;, Rest/binary>>, Acc, Name, Value) when Name == error; Value == error ->
+	parse_cookie(Rest, Acc);
+
+parse_cookie_value(<<$;, Rest/binary>>, Acc, Name, Value) ->
+	parse_cookie(Rest, [{Name, parse_cookie_trim(Value)} | Acc]);
+
+
+parse_cookie_value(<< Bad, Rest/binary >>, Acc, Name, _Value) when Bad == $\r; Bad == $\n; Bad == $\013; Bad == $\014 ->
+	parse_cookie_value(Rest, Acc, Name, error);
+
+parse_cookie_value(<<_, Rest/binary>>, Acc, Name, error) ->
+	parse_cookie_value(Rest, Acc, Name, error);
+
 parse_cookie_value(<< C, Rest/binary >>, Acc, Name, Value) ->
 	parse_cookie_value(Rest, Acc, Name, << Value/binary, C >>).
 
@@ -156,7 +162,7 @@ parse_cookie_test_() ->
 		{<<"foo=\\\";;bar ">>, {error, badarg}},
 		{<<"foo=\\\";;bar=good ">>,
 			[{<<"foo">>, <<"\\\"">>}, {<<"bar">>, <<"good">>}]},
-%%		{<<"foo=\"\\\";bar">>, {error, badarg}}, %%breaks RFC but happens in the wild 
+%%		{<<"foo=\"\\\";bar">>, {error, badarg}}, %%breaks RFC but happens in the wild
 		{<<>>, []}, %% Flash player.
 		{<<"foo=bar , baz=wibble ">>, [{<<"foo">>, <<"bar , baz=wibble">>}]},
 		{<<"start; foo=bar; finish">>, [{<<"start">>, <<"">>}, {<<"foo">>, <<"bar">>}, {<<"finish">>, <<"">>}]} %%javascript:document.cookie="start";
